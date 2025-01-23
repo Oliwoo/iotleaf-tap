@@ -1,0 +1,150 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto
+    hostname: mosquitto
+    restart: unless-stopped
+    networks:
+      - kafka-network
+    ports:
+      - "1883:1883"  # Porta MQTT standard
+      - "9001:9001"  # Porta WebSocket (opzionale)
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+  zookeeper:
+    container_name: zookeeper
+    networks:
+      - kafka-network
+    image: bitnami/zookeeper:latest
+    restart: always
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: 'yes'
+    volumes:
+      - ./zookeeper/persistence:/bitnami/zookeeper
+  kafka:
+    container_name: kafka
+    networks:
+      - kafka-network
+    image: bitnami/kafka:latest
+    depends_on:
+      - zookeeper
+    restart: always
+    ports:
+      - 9092:9092
+      - 29092:29092
+      - 1099:1099
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+      KAFKA_ADVERTISED_LISTENER_HOSTNAME: kafka
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://:9092,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_PORT: 9092
+      KAFKA_CREATE_TOPICS: "report:1:1"
+    volumes:
+      - ./kafka/persistence:/bitnami/kafka
+  mqtt-bridge:
+    container_name: mqtt-bridge
+    networks:
+      - kafka-network
+    image: marmaechler/mqtt2kafkabridge:latest
+    depends_on:
+      - kafka
+      - mosquitto
+    restart: always
+    environment:
+      KAFKA_BROKER_HOST: kafka:9092
+      MQTT_BROKER_HOST: mosquitto:1883
+    volumes:
+      - ./mqtt2kafkabridge/logs:/opt/mqtt2kafkabridge/logs
+  kafka-ui:
+    container_name: kafka-ui
+    networks:
+      - kafka-network
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - 8130:8080
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=PLAINTEXT://kafka:9092
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.0.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - ELASTIC_PASSWORD=iotleaf
+    ports:
+      - "9200:9200"
+    networks:
+      - kafka-network
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.0.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=iotleaf
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - kafka-network
+
+  spark-master:
+    image: bitnami/spark:latest
+    container_name: spark-master
+    networks:
+      - kafka-network
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - "7077:7077"
+      - "8080:8080"
+
+  spark-worker:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: spark-worker
+    networks:
+      - kafka-network
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    depends_on:
+      - spark-master
+    ports:
+      - "8081:8081"  # Interfaccia web Worker
+  data-processor:
+    build:
+      context: ./data-processor
+    container_name: data-processor
+    depends_on:
+      - kafka
+      - mosquitto
+    environment:
+      - KAFKA_BROKER=kafka:9092
+      - MQTT_BROKER=mqtt-broker
+networks:
+  kafka-network:
+    driver: bridge
+
+volumes:
+  influxdb-data:
+    driver: local
+  kafka-persistence: {}  # Volume per Kafka
+  zookeeper-persistence: {}  # Volume per Zookeeper

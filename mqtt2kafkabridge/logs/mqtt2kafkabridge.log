@@ -1,0 +1,9 @@
+[ERROR] 2025-01-23 16:21:04.892 [MQTT Rec: Mqtt2KafkaBridge] Mqtt2KafkaBridge - Connection to MQTT server lost.
+org.eclipse.paho.client.mqttv3.MqttException: Connection lost
+	at org.eclipse.paho.client.mqttv3.internal.CommsReceiver.run(CommsReceiver.java:189) [mqtt2kafkabridge.jar:?]
+	at java.lang.Thread.run(Thread.java:834) [?:?]
+Caused by: java.io.EOFException
+	at java.io.DataInputStream.readByte(DataInputStream.java:272) ~[?:?]
+	at org.eclipse.paho.client.mqttv3.internal.wire.MqttInputStream.readMqttWireMessage(MqttInputStream.java:92) ~[mqtt2kafkabridge.jar:?]
+	at org.eclipse.paho.client.mqttv3.internal.CommsReceiver.run(CommsReceiver.java:136) ~[mqtt2kafkabridge.jar:?]
+	... 1 more
